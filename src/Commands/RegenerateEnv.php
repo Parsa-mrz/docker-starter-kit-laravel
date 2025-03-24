@@ -8,17 +8,15 @@ use ParsaMirzaie\DockerStarterKitLaravel\DockerServiceProvider;
 class RegenerateEnv extends Command {
 
 	protected $signature   = 'docker:regen-env';
-	protected $description = 'Regenerate Docker environment files based on the current docker-config.php';
+	protected $description = 'Regenerate Docker environment and compose files based on the current docker-config.php';
 
 	public function handle() {
 		$provider = new DockerServiceProvider( $this->laravel );
-		$this->info( 'Regenerating Docker environment files...' );
+		$this->info( 'Regenerating Docker environment and compose files...' );
 
-		$reflection = new \ReflectionClass( $provider );
-		$method     = $reflection->getMethod( 'generateEnvFiles' );
-		$method->setAccessible( true );
-		$method->invoke( $provider );
+		$provider->generateDockerComposeFiles();
+		$provider->generateEnvFiles();
 
-		$this->info( 'Docker environment files regenerated successfully.' );
+		$this->info( 'Docker environment and compose files regenerated successfully.' );
 	}
 }

@@ -31,8 +31,14 @@ class DockerServiceProvider extends ServiceProvider {
 			);
 		}
 
-		$this->generateDockerComposeFiles();
-		$this->generateEnvFiles();
+		$this->app->booted(
+			function () {
+				if ( $this->app->runningInConsole() && in_array( 'vendor:publish', $_SERVER['argv'] ?? array() ) ) {
+					$this->generateDockerComposeFiles();
+					$this->generateEnvFiles();
+				}
+			}
+		);
 	}
 
 	public function register() {
