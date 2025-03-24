@@ -12,7 +12,7 @@ class DockerServiceProvider extends ServiceProvider
     public function boot()
     {
         // Define source and destination paths
-        $sourceDockerPath = __DIR__ . '/../../docker';
+        $sourceDockerPath = __DIR__ . '/../docker'; // One level up from src/
         $destinationDockerPath = base_path('docker');
 
         // Copy the entire docker/ directory on package install
@@ -20,14 +20,14 @@ class DockerServiceProvider extends ServiceProvider
             File::copyDirectory($sourceDockerPath, $destinationDockerPath);
         }
 
-        // Publish the config file (still optional via vendor:publish)
+        // Publish the config file
         $this->publishes([
-            __DIR__ . '/../../config/docker-config.php' => config_path('docker-config.php'),
+            __DIR__ . '/../config/docker-config.php' => config_path('docker-config.php'),
         ], 'docker-config');
 
-        // Publish the docker/ directory (optional override via vendor:publish)
+        // Publish the docker/ directory
         $this->publishes([
-            __DIR__ . '/../../docker' => base_path('docker'),
+            __DIR__ . '/../docker' => base_path('docker'),
         ], 'docker-files');
 
         if ($this->app->runningInConsole()) {
@@ -43,7 +43,7 @@ class DockerServiceProvider extends ServiceProvider
 
     public function register()
     {
-        $configPath = __DIR__ . '/../../config/docker-config.php';
+        $configPath = __DIR__ . '/../config/docker-config.php'; // One level up from src/
         if (file_exists($configPath)) {
             $this->mergeConfigFrom($configPath, 'docker-config');
         } else {
