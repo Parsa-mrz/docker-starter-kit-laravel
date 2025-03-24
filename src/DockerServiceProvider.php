@@ -11,21 +11,17 @@ class DockerServiceProvider extends ServiceProvider
 {
     public function boot()
     {
-        // Define source and destination paths
-        $sourceDockerPath = __DIR__ . '/../docker'; // One level up from src/
+        $sourceDockerPath = __DIR__ . '/../docker';
         $destinationDockerPath = base_path('docker');
 
-        // Copy the entire docker/ directory on package install
         if (file_exists($sourceDockerPath) && !file_exists($destinationDockerPath)) {
             File::copyDirectory($sourceDockerPath, $destinationDockerPath);
         }
 
-        // Publish the config file
         $this->publishes([
             __DIR__ . '/../config/docker-config.php' => config_path('docker-config.php'),
         ], 'docker-config');
 
-        // Publish the docker/ directory
         $this->publishes([
             __DIR__ . '/../docker' => base_path('docker'),
         ], 'docker-files');
@@ -36,14 +32,13 @@ class DockerServiceProvider extends ServiceProvider
             ]);
         }
 
-        // Generate .env and docker-compose.yml files immediately after install
         $this->generateDockerComposeFiles();
         $this->generateEnvFiles();
     }
 
     public function register()
     {
-        $configPath = __DIR__ . '/../config/docker-config.php'; // One level up from src/
+        $configPath = __DIR__ . '/../config/docker-config.php';
         if (file_exists($configPath)) {
             $this->mergeConfigFrom($configPath, 'docker-config');
         } else {
@@ -61,10 +56,71 @@ class DockerServiceProvider extends ServiceProvider
 
             $activeServices = $this->filterActiveServices($allServices);
 
+            // Define volumes and networks only if relevant services are active
+            $volumes = [];
+            if (isset($activeServices['app'])) {
+                $volumes["vendor_$env"] = new \stdClass();
+                $volumes['laravel_storage'] = new \stdClass();
+            }
+            if (isset($activeServices['postgresql'])) {
+                $volumes["pgdata_$env"] = new \stdClass();
+            }
+            if (isset($activeServices['redis'])) {
+                $volumes["redisdata_$env"] = new \stdClass();
+            }
+
             $dockerCompose = [
-                'version' => '3',
-                'services' => $activeServices,
+                'version' => '3.8',
+                'volumes' => $volumes,
+                'networks' => [
+                    'app-network' => [
+                        'driver' => 'bridge',
+                    ],
+                ],
+                'services' => [],
             ];
+
+            // Apply custom configurations only to active services
+            foreach ($activeServices as $serviceName => $serviceConfig) {
+                switch ($serviceName) {
+                    case 'app':
+                        $serviceConfig['image'] = "personal_website_$env";
+                        $serviceConfig['container_name'] = 'laravel_app';
+                        $serviceConfig['env_file'] = ["envs/$env/.env"];
+                        $serviceConfig['volumes'] = [
+                            '.:/var/www/html',
+                            "vendor_$env:/var/www/html/vendor",
+                            'laravel_storage:/var/www/html/storage',
+                        ];
+                        $serviceConfig['ports'] = ['8000:8000', '5173:5173'];
+                        $serviceConfig['networks'] = ['app-network'];
+                        $serviceConfig['healthcheck'] = [
+                            'test' => ['CMD', 'nc', '-z', 'localhost', '8000'],
+                            'interval' => '10s',
+                            'timeout' => '5s',
+                            'retries' => 5,
+                        ];
+                        break;
+                    case 'postgresql':
+                        $serviceConfig['container_name'] = 'postgres';
+                        $serviceConfig['env_file'] = ["envs/$env/.env"];
+                        $serviceConfig['environment'] = [
+                            'POSTGRES_PASSWORD' => '5@K2!pS@x^hEt39JB@3Wsx&h2wMPB',
+                            'POSTGRES_USER' => 'Strongbox3978',
+                            'POSTGRES_DB' => 'laravel_app',
+                        ];
+                        $serviceConfig['volumes'] = ["pgdata_$env:/var/lib/postgresql/data"];
+                        $serviceConfig['networks'] = ['app-network'];
+                        break;
+                    case 'redis':
+                        $serviceConfig['container_name'] = 'redis';
+                        $serviceConfig['env_file'] = ["envs/$env/.env"];
+                        $serviceConfig['volumes'] = ["redisdata_$env:/data"];
+                        $serviceConfig['networks'] = ['app-network'];
+                        break;
+                }
+                $dockerCompose['services'][$serviceName] = $serviceConfig;
+            }
 
             $directory = dirname($dockerComposePath);
             if (!file_exists($directory)) {
@@ -80,7 +136,7 @@ class DockerServiceProvider extends ServiceProvider
         $config = config('docker-config.environments');
 
         foreach ($config as $env => $settings) {
-            $envFilePath = $settings['env_file'];
+            $envFilePath = base_path("envs/$env/.env");
             $services = $settings['services'] ?? [];
 
             $envContent = $this->buildEnvContent($env, $services);
@@ -103,7 +159,7 @@ class DockerServiceProvider extends ServiceProvider
         foreach ($databaseServices as $dbService) {
             if (isset($services[$dbService]) && ($services[$dbService]['active'] ?? false)) {
                 if ($activeDatabase) {
-                    continue;
+                    continue; // Only one database service can be active
                 }
                 $activeDatabase = $dbService;
                 $serviceConfig = $services[$dbService];
@@ -148,96 +204,37 @@ class DockerServiceProvider extends ServiceProvider
         }
 
         $envLines[] = '';
+        $envLines[] = 'APP_KEY='; // Generate with `php artisan key:generate` later
         $envLines[] = 'APP_LOCALE=en';
         $envLines[] = 'APP_FALLBACK_LOCALE=en';
         $envLines[] = 'APP_FAKER_LOCALE=en_US';
         $envLines[] = '';
-        $envLines[] = 'APP_MAINTENANCE_DRIVER=file';
-        $envLines[] = '# APP_MAINTENANCE_STORE=database';
-        $envLines[] = '';
-        $envLines[] = 'PHP_CLI_SERVER_WORKERS=4';
-        $envLines[] = '';
-        $envLines[] = 'BCRYPT_ROUNDS=12';
-        $envLines[] = '';
         $envLines[] = 'LOG_CHANNEL=stack';
-        $envLines[] = 'LOG_STACK=single';
-        $envLines[] = 'LOG_DEPRECATIONS_CHANNEL=null';
         $envLines[] = 'LOG_LEVEL=debug';
-        $envLines[] = '';
 
         $activeDatabase = $this->getActiveDatabase($services);
         if ($activeDatabase === 'mysql') {
             $envLines[] = 'DB_CONNECTION=mysql';
             $envLines[] = 'DB_HOST=mysql';
             $envLines[] = 'DB_PORT=3306';
-            $envLines[] = 'DB_DATABASE=laravel';
-            $envLines[] = 'DB_USERNAME=laravel';
-            $envLines[] = 'DB_PASSWORD=secret';
+            $envLines[] = 'DB_DATABASE=laravel_app';
+            $envLines[] = 'DB_USERNAME=Strongbox3978';
+            $envLines[] = 'DB_PASSWORD=5@K2!pS@x^hEt39JB@3Wsx&h2wMPB';
         } elseif ($activeDatabase === 'postgresql') {
             $envLines[] = 'DB_CONNECTION=pgsql';
-            $envLines[] = 'DB_HOST=postgresql';
+            $envLines[] = 'DB_HOST=postgres';
             $envLines[] = 'DB_PORT=5432';
-            $envLines[] = 'DB_DATABASE=laravel';
-            $envLines[] = 'DB_USERNAME=laravel';
-            $envLines[] = 'DB_PASSWORD=secret';
+            $envLines[] = 'DB_DATABASE=laravel_app';
+            $envLines[] = 'DB_USERNAME=Strongbox3978';
+            $envLines[] = 'DB_PASSWORD=5@K2!pS@x^hEt39JB@3Wsx&h2wMPB';
         } else {
             $envLines[] = '# No active database service defined';
         }
-        $envLines[] = '';
-
-        $envLines[] = 'SESSION_DRIVER=database';
-        $envLines[] = 'SESSION_LIFETIME=120';
-        $envLines[] = 'SESSION_ENCRYPT=false';
-        $envLines[] = 'SESSION_PATH=/';
-        $envLines[] = 'SESSION_DOMAIN=null';
-        $envLines[] = '';
-        $envLines[] = 'BROADCAST_CONNECTION=log';
-        $envLines[] = 'FILESYSTEM_DISK=local';
-        $envLines[] = 'QUEUE_CONNECTION=database';
-        $envLines[] = '';
-        $envLines[] = 'CACHE_STORE=database';
-        $envLines[] = '# CACHE_PREFIX=';
-        $envLines[] = '';
-        $envLines[] = 'MEMCACHED_HOST=127.0.0.1';
-        $envLines[] = '';
 
         if (isset($services['redis']) && ($services['redis']['active'] ?? false)) {
-            $envLines[] = 'REDIS_CLIENT=phpredis';
-            $envLines[] = 'REDIS_PASSWORD=null';
             $envLines[] = 'REDIS_HOST=redis';
             $envLines[] = 'REDIS_PORT=6379';
-        } else {
-            $envLines[] = 'REDIS_CLIENT=phpredis';
             $envLines[] = 'REDIS_PASSWORD=null';
-            $envLines[] = 'REDIS_HOST=127.0.0.1';
-            $envLines[] = 'REDIS_PORT=6379';
-        }
-        $envLines[] = '';
-
-        $envLines[] = 'MAIL_MAILER=log';
-        $envLines[] = 'MAIL_SCHEME=null';
-        $envLines[] = 'MAIL_HOST=127.0.0.1';
-        $envLines[] = 'MAIL_PORT=2525';
-        $envLines[] = 'MAIL_USERNAME=null';
-        $envLines[] = 'MAIL_PASSWORD=null';
-        $envLines[] = 'MAIL_FROM_ADDRESS="hello@example.com"';
-        $envLines[] = 'MAIL_FROM_NAME="${APP_NAME}"';
-        $envLines[] = '';
-        $envLines[] = 'AWS_ACCESS_KEY_ID=';
-        $envLines[] = 'AWS_SECRET_ACCESS_KEY=';
-        $envLines[] = 'AWS_DEFAULT_REGION=us-east-1';
-        $envLines[] = 'AWS_BUCKET=';
-        $envLines[] = 'AWS_USE_PATH_STYLE_ENDPOINT=false';
-        $envLines[] = '';
-        $envLines[] = 'VITE_APP_NAME="${APP_NAME}"';
-        $envLines[] = '';
-
-        if (isset($services['rabbitmq']) && ($services['rabbitmq']['active'] ?? false)) {
-            $envLines[] = 'RABBITMQ_HOST=rabbitmq';
-            $envLines[] = 'RABBITMQ_PORT=5672';
-        } else {
-            $envLines[] = 'RABBITMQ_HOST=127.0.0.1';
-            $envLines[] = 'RABBITMQ_PORT=5672';
         }
 
         return implode("\n", $envLines) . "\n";
@@ -261,7 +258,7 @@ class DockerServiceProvider extends ServiceProvider
                 'develop' => [
                     'path' => base_path('docker/develop'),
                     'docker_compose' => base_path('docker/develop/docker-compose.yml'),
-                    'env_file' => base_path('docker/develop/.env.develop'),
+                    'env_file' => base_path('envs/develop/.env'),
                     'services' => [
                         'app' => [
                             'active' => true,
@@ -313,7 +310,7 @@ class DockerServiceProvider extends ServiceProvider
                 'production' => [
                     'path' => base_path('docker/production'),
                     'docker_compose' => base_path('docker/production/docker-compose.yml'),
-                    'env_file' => base_path('docker/production/.env.production'),
+                    'env_file' => base_path('envs/production/.env'),
                     'services' => [
                         'app' => [
                             'active' => true,
