@@ -8,15 +8,16 @@ return array(
 			'env_file'       => base_path( 'docker/develop/.env.develop' ),
 			'services'       => array(
 				'app'        => array(
-					'build'      => array(
-						'context'    => '.',
-						'dockerfile' => 'dockerfile',
+					'active'  => true,
+					'build'   => array(
+						'context'    => base_path(),
+						'dockerfile' => 'docker/develop/Dockerfile',
 					),
-					'ports'      => array( '8000:80' ),
-					'volumes'    => array( '.:/var/www' ),
-					'depends_on' => array( 'mysql' ),
+					'ports'   => array( '8000:80' ),
+					'volumes' => array( '.:/var/www' ),
 				),
 				'mysql'      => array(
+					'active'      => false,
 					'image'       => 'mysql:8.0',
 					'ports'       => array( '3306:3306' ),
 					'environment' => array(
@@ -27,10 +28,12 @@ return array(
 					),
 				),
 				'redis'      => array(
-					'image' => 'redis:7.0',
-					'ports' => array( '6379:6379' ),
+					'active' => false,
+					'image'  => 'redis:7.0',
+					'ports'  => array( '6379:6379' ),
 				),
 				'rabbitmq'   => array(
+					'active'      => false,
 					'image'       => 'rabbitmq:3.12-management',
 					'ports'       => array( '5672:5672', '15672:15672' ),
 					'environment' => array(
@@ -39,6 +42,7 @@ return array(
 					),
 				),
 				'postgresql' => array(
+					'active'      => true,
 					'image'       => 'postgres:15',
 					'ports'       => array( '5432:5432' ),
 					'environment' => array(
@@ -54,16 +58,17 @@ return array(
 			'docker_compose' => base_path( 'docker/production/docker-compose.yml' ),
 			'env_file'       => base_path( 'docker/production/.env.production' ),
 			'services'       => array(
-				'app'   => array(
-					'build'      => array(
-						'context'    => '.',
-						'dockerfile' => 'dockerfile',
+				'app'        => array(
+					'active'  => true,
+					'build'   => array(
+						'context'    => base_path(),
+						'dockerfile' => 'docker/production/Dockerfile',
 					),
-					'ports'      => array( '80:80' ),
-					'volumes'    => array( '.:/var/www' ),
-					'depends_on' => array( 'mysql' ),
+					'ports'   => array( '80:80' ),
+					'volumes' => array( '.:/var/www' ),
 				),
-				'mysql' => array(
+				'mysql'      => array(
+					'active'      => false,
 					'image'       => 'mysql:8.0',
 					'ports'       => array( '3306:3306' ),
 					'environment' => array(
@@ -73,7 +78,30 @@ return array(
 						'MYSQL_ROOT_PASSWORD' => 'secret',
 					),
 				),
-				// Add other services as needed.
+				'redis'      => array(
+					'active' => false,
+					'image'  => 'redis:7.0',
+					'ports'  => array( '6379:6379' ),
+				),
+				'rabbitmq'   => array(
+					'active'      => false,
+					'image'       => 'rabbitmq:3.12-management',
+					'ports'       => array( '5672:5672', '15672:15672' ),
+					'environment' => array(
+						'RABBITMQ_DEFAULT_USER' => 'guest',
+						'RABBITMQ_DEFAULT_PASS' => 'guest',
+					),
+				),
+				'postgresql' => array(
+					'active'      => true,
+					'image'       => 'postgres:15',
+					'ports'       => array( '5432:5432' ),
+					'environment' => array(
+						'POSTGRES_DB'       => 'laravel',
+						'POSTGRES_USER'     => 'laravel',
+						'POSTGRES_PASSWORD' => 'secret',
+					),
+				),
 			),
 		),
 	),
