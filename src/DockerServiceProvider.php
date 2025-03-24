@@ -36,10 +36,14 @@ class DockerServiceProvider extends ServiceProvider {
 	}
 
 	public function register() {
-		$this->mergeConfigFrom(
-			__DIR__ . '/../../config/docker-config.php',
-			'docker-config'
-		);
+		$configPath = __DIR__ . '/../../config/docker-config.php';
+
+		if ( file_exists( $configPath ) ) {
+			$this->mergeConfigFrom( $configPath, 'docker-config' );
+		} else {
+			// If the config file doesn't exist, set a default configuration
+			$this->app['config']->set( 'docker-config', $this->getDefaultConfig() );
+		}
 	}
 
 	protected function generateDockerComposeFiles() {
@@ -124,7 +128,6 @@ class DockerServiceProvider extends ServiceProvider {
 	protected function buildEnvContent( string $env, array $services ): string {
 		$envLines = array();
 
-		// Static variables based on environment
 		if ( $env === 'develop' ) {
 			$envLines[] = 'APP_ENV=development';
 			$envLines[] = 'APP_DEBUG=true';
@@ -132,7 +135,7 @@ class DockerServiceProvider extends ServiceProvider {
 		} elseif ( $env === 'production' ) {
 			$envLines[] = 'APP_ENV=production';
 			$envLines[] = 'APP_DEBUG=false';
-			$envLines[] = 'APP_URL=https://yourdomain.com'; // Adjust as needed
+			$envLines[] = 'APP_URL=https://yourdomain.com';
 		}
 
 		$envLines[] = '';
@@ -153,7 +156,6 @@ class DockerServiceProvider extends ServiceProvider {
 		$envLines[] = 'LOG_LEVEL=debug';
 		$envLines[] = '';
 
-		// Dynamic database variables
 		$activeDatabase = $this->getActiveDatabase( $services );
 		if ( $activeDatabase === 'mysql' ) {
 			$envLines[] = 'DB_CONNECTION=mysql';
@@ -190,7 +192,6 @@ class DockerServiceProvider extends ServiceProvider {
 		$envLines[] = 'MEMCACHED_HOST=127.0.0.1';
 		$envLines[] = '';
 
-		// Dynamic Redis variables
 		if ( isset( $services['redis'] ) && ( $services['redis']['active'] ?? false ) ) {
 			$envLines[] = 'REDIS_CLIENT=phpredis';
 			$envLines[] = 'REDIS_PASSWORD=null';
@@ -199,7 +200,7 @@ class DockerServiceProvider extends ServiceProvider {
 		} else {
 			$envLines[] = 'REDIS_CLIENT=phpredis';
 			$envLines[] = 'REDIS_PASSWORD=null';
-			$envLines[] = 'REDIS_HOST=127.0.0.1'; // Fallback when inactive
+			$envLines[] = 'REDIS_HOST=127.0.0.1';
 			$envLines[] = 'REDIS_PORT=6379';
 		}
 		$envLines[] = '';
@@ -211,7 +212,7 @@ class DockerServiceProvider extends ServiceProvider {
 		$envLines[] = 'MAIL_USERNAME=null';
 		$envLines[] = 'MAIL_PASSWORD=null';
 		$envLines[] = 'MAIL_FROM_ADDRESS="hello@example.com"';
-		$envLines[] = "MAIL_FROM_NAME=\"${APP_NAME}\"";
+		$envLines[] = 'MAIL_FROM_NAME="${APP_NAME}"';
 		$envLines[] = '';
 		$envLines[] = 'AWS_ACCESS_KEY_ID=';
 		$envLines[] = 'AWS_SECRET_ACCESS_KEY=';
@@ -219,15 +220,14 @@ class DockerServiceProvider extends ServiceProvider {
 		$envLines[] = 'AWS_BUCKET=';
 		$envLines[] = 'AWS_USE_PATH_STYLE_ENDPOINT=false';
 		$envLines[] = '';
-		$envLines[] = "VITE_APP_NAME=\"${APP_NAME}\"";
+		$envLines[] = 'VITE_APP_NAME="${APP_NAME}"';
 		$envLines[] = '';
 
-		// Dynamic RabbitMQ variables
 		if ( isset( $services['rabbitmq'] ) && ( $services['rabbitmq']['active'] ?? false ) ) {
 			$envLines[] = 'RABBITMQ_HOST=rabbitmq';
 			$envLines[] = 'RABBITMQ_PORT=5672';
 		} else {
-			$envLines[] = 'RABBITMQ_HOST=127.0.0.1'; // Fallback when inactive
+			$envLines[] = 'RABBITMQ_HOST=127.0.0.1';
 			$envLines[] = 'RABBITMQ_PORT=5672';
 		}
 
@@ -242,5 +242,122 @@ class DockerServiceProvider extends ServiceProvider {
 			}
 		}
 		return null;
+	}
+
+	protected function getDefaultConfig(): array {
+		return array(
+			'environments'        => array(
+				'develop'    => array(
+					'path'           => base_path( 'docker/develop' ),
+					'docker_compose' => base_path( 'docker/develop/docker-compose.yml' ),
+					'env_file'       => base_path( 'docker/develop/.env.develop' ),
+					'services'       => array(
+						'app'        => array(
+							'active'     => true,
+							'build'      => array(
+								'context'    => base_path(),
+								'dockerfile' => 'docker/develop/Dockerfile',
+							),
+							'ports'      => array( '8000:80' ),
+							'volumes'    => array( '.:/var/www' ),
+							'depends_on' => array( 'postgresql' ),
+						),
+						'mysql'      => array(
+							'active'      => false,
+							'image'       => 'mysql:8.0',
+							'ports'       => array( '3306:3306' ),
+							'environment' => array(
+								'MYSQL_DATABASE'      => 'laravel',
+								'MYSQL_USER'          => 'laravel',
+								'MYSQL_PASSWORD'      => 'secret',
+								'MYSQL_ROOT_PASSWORD' => 'secret',
+							),
+						),
+						'redis'      => array(
+							'active' => false,
+							'image'  => 'redis:7.0',
+							'ports'  => array( '6379:6379' ),
+						),
+						'rabbitmq'   => array(
+							'active'      => false,
+							'image'       => 'rabbitmq:3.12-management',
+							'ports'       => array( '5672:5672', '15672:15672' ),
+							'environment' => array(
+								'RABBITMQ_DEFAULT_USER' => 'guest',
+								'RABBITMQ_DEFAULT_PASS' => 'guest',
+							),
+						),
+						'postgresql' => array(
+							'active'      => true,
+							'image'       => 'postgres:15',
+							'ports'       => array( '5432:5432' ),
+							'environment' => array(
+								'POSTGRES_DB'       => 'laravel',
+								'POSTGRES_USER'     => 'laravel',
+								'POSTGRES_PASSWORD' => 'secret',
+							),
+						),
+					),
+				),
+				'production' => array(
+					'path'           => base_path( 'docker/production' ),
+					'docker_compose' => base_path( 'docker/production/docker-compose.yml' ),
+					'env_file'       => base_path( 'docker/production/.env.production' ),
+					'services'       => array(
+						'app'        => array(
+							'active'     => true,
+							'build'      => array(
+								'context'    => base_path(),
+								'dockerfile' => 'docker/production/Dockerfile',
+							),
+							'ports'      => array( '80:80' ),
+							'volumes'    => array( '.:/var/www' ),
+							'depends_on' => array( 'postgresql' ),
+						),
+						'mysql'      => array(
+							'active'      => false,
+							'image'       => 'mysql:8.0',
+							'ports'       => array( '3306:3306' ),
+							'environment' => array(
+								'MYSQL_DATABASE'      => 'laravel',
+								'MYSQL_USER'          => 'laravel',
+								'MYSQL_PASSWORD'      => 'secret',
+								'MYSQL_ROOT_PASSWORD' => 'secret',
+							),
+						),
+						'redis'      => array(
+							'active' => false,
+							'image'  => 'redis:7.0',
+							'ports'  => array( '6379:6379' ),
+						),
+						'rabbitmq'   => array(
+							'active'      => false,
+							'image'       => 'rabbitmq:3.12-management',
+							'ports'       => array( '5672:5672', '15672:15672' ),
+							'environment' => array(
+								'RABBITMQ_DEFAULT_USER' => 'guest',
+								'RABBITMQ_DEFAULT_PASS' => 'guest',
+							),
+						),
+						'postgresql' => array(
+							'active'      => true,
+							'image'       => 'postgres:15',
+							'ports'       => array( '5432:5432' ),
+							'environment' => array(
+								'POSTGRES_DB'       => 'laravel',
+								'POSTGRES_USER'     => 'laravel',
+								'POSTGRES_PASSWORD' => 'secret',
+							),
+						),
+					),
+				),
+			),
+			'default_environment' => env( 'DOCKER_ENV', 'develop' ),
+			'commands'            => array(
+				'up'    => 'docker-compose -f %s up -d',
+				'down'  => 'docker-compose -f %s down',
+				'build' => 'docker-compose -f %s build',
+			),
+		);
 	}
 }
